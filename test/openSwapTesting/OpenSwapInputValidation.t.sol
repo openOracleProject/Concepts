@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "../../src/OpenOracle.sol";
 import "../../src/openSwap.sol";
 import "../../src/oracleBountyERC20_sketch.sol";
+import "../../src/OPGrantFaucet.sol";
 import "../utils/MockERC20.sol";
 
 /**
@@ -15,13 +16,17 @@ contract OpenSwapInputValidationTest is Test {
     OpenOracle internal oracle;
     openSwap internal swapContract;
     openOracleBounty internal bountyContract;
+    BountyAndPriceRequest internal grantFaucet;
     MockERC20 internal sellToken;
     MockERC20 internal buyToken;
 
     address internal swapper = address(0x1);
     address internal matcher = address(0x2);
+    address internal faucetOwner = address(0x3);
 
+    address constant OP = 0x4200000000000000000000000000000000000042;
     address constant WETH = 0x4200000000000000000000000000000000000006;
+    address constant USDC = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85;
 
     uint256 constant SETTLER_REWARD = 0.001 ether;
     uint256 constant BOUNTY_AMOUNT = 0.01 ether;
@@ -46,12 +51,19 @@ contract OpenSwapInputValidationTest is Test {
     uint16 constant MAX_ROUNDS = 10;
 
     function setUp() public {
-        // Mock WETH
+        // Mock OP, WETH, USDC
+        vm.etch(OP, address(new MockERC20("Optimism", "OP")).code);
         vm.etch(WETH, address(new MockERC20("WETH", "WETH")).code);
+        vm.etch(USDC, address(new MockERC20("USD Coin", "USDC")).code);
 
         oracle = new OpenOracle();
         bountyContract = new openOracleBounty(address(oracle));
-        swapContract = new openSwap(address(oracle), address(bountyContract));
+        grantFaucet = new BountyAndPriceRequest(address(oracle), address(bountyContract), faucetOwner, 5e14, 15e17);
+        swapContract = new openSwap(address(oracle), address(bountyContract), address(grantFaucet));
+
+        vm.prank(faucetOwner);
+        grantFaucet.setOpenSwap(address(swapContract));
+        deal(OP, address(grantFaucet), 1000000e18);
 
         sellToken = new MockERC20("SellToken", "SELL");
         buyToken = new MockERC20("BuyToken", "BUY");

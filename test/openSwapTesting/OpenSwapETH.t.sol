@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "../../src/OpenOracle.sol";
 import "../../src/openSwap.sol";
 import "../../src/oracleBountyERC20_sketch.sol";
+import "../../src/OPGrantFaucet.sol";
 import "../utils/MockERC20.sol";
 import "../../src/interfaces/IWETH.sol";
 
@@ -16,14 +17,18 @@ contract OpenSwapETHTest is Test {
     OpenOracle internal oracle;
     openSwap internal swapContract;
     openOracleBounty internal bountyContract;
+    BountyAndPriceRequest internal grantFaucet;
     MockERC20 internal token;
 
     address internal swapper = address(0x1);
     address internal matcher = address(0x2);
     address internal initialReporter = address(0x3);
     address internal settler = address(0x4);
+    address internal faucetOwner = address(0x5);
 
+    address constant OP = 0x4200000000000000000000000000000000000042;
     address constant WETH = 0x4200000000000000000000000000000000000006;
+    address constant USDC = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85;
 
     // Oracle params
     uint256 constant SETTLER_REWARD = 0.001 ether;
@@ -50,13 +55,19 @@ contract OpenSwapETHTest is Test {
     uint16 constant MAX_ROUNDS = 10;
 
     function setUp() public {
-        // Deploy mock WETH and use vm.etch to put it at the WETH address
-        MockERC20 mockWeth = new MockERC20("WETH", "WETH");
-        vm.etch(WETH, address(mockWeth).code);
+        // Deploy mock tokens and use vm.etch to put them at mainnet addresses
+        vm.etch(OP, address(new MockERC20("Optimism", "OP")).code);
+        vm.etch(WETH, address(new MockERC20("WETH", "WETH")).code);
+        vm.etch(USDC, address(new MockERC20("USD Coin", "USDC")).code);
 
         oracle = new OpenOracle();
         bountyContract = new openOracleBounty(address(oracle));
-        swapContract = new openSwap(address(oracle), address(bountyContract));
+        grantFaucet = new BountyAndPriceRequest(address(oracle), address(bountyContract), faucetOwner, 5e14, 15e17);
+        swapContract = new openSwap(address(oracle), address(bountyContract), address(grantFaucet));
+
+        vm.prank(faucetOwner);
+        grantFaucet.setOpenSwap(address(swapContract));
+        deal(OP, address(grantFaucet), 1000000e18);
 
         token = new MockERC20("Token", "TKN");
 

@@ -5,19 +5,27 @@ import "forge-std/Test.sol";
 import "../../src/OpenOracle.sol";
 import "../../src/openSwap.sol";
 import "../../src/oracleBountyERC20_sketch.sol";
+import "../../src/OPGrantFaucet.sol";
 import "../utils/MockERC20.sol";
 
 contract OpenSwapHappyPathTest is Test {
     OpenOracle internal oracle;
     openSwap internal swapContract;
     openOracleBounty internal bountyContract;
+    BountyAndPriceRequest internal grantFaucet;
     MockERC20 internal sellToken;
     MockERC20 internal buyToken;
+
+    // Optimism mainnet addresses (will be mocked)
+    address constant OP = 0x4200000000000000000000000000000000000042;
+    address constant WETH = 0x4200000000000000000000000000000000000006;
+    address constant USDC = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85;
 
     address internal swapper = address(0x1);
     address internal matcher = address(0x2);
     address internal initialReporter = address(0x3);
     address internal settler = address(0x4);
+    address internal faucetOwner = address(0x5);
 
     // Oracle params
     uint256 constant SETTLER_REWARD = 0.001 ether;
@@ -44,10 +52,36 @@ contract OpenSwapHappyPathTest is Test {
     uint16 constant MAX_ROUNDS = 10;
 
     function setUp() public {
+        // Mock OP, WETH, USDC at their mainnet addresses
+        MockERC20 mockOP = new MockERC20("Optimism", "OP");
+        MockERC20 mockWETH = new MockERC20("Wrapped Ether", "WETH");
+        MockERC20 mockUSDC = new MockERC20("USD Coin", "USDC");
+        vm.etch(OP, address(mockOP).code);
+        vm.etch(WETH, address(mockWETH).code);
+        vm.etch(USDC, address(mockUSDC).code);
+
         // Deploy contracts
         oracle = new OpenOracle();
         bountyContract = new openOracleBounty(address(oracle));
-        swapContract = new openSwap(address(oracle), address(bountyContract));
+
+        // Deploy grant faucet with initial OP prices (e.g., 1 OP = 0.0005 WETH, 1 OP = 1.5 USDC)
+        grantFaucet = new BountyAndPriceRequest(
+            address(oracle),
+            address(bountyContract),
+            faucetOwner,
+            5e14,   // OPWETH price
+            15e17   // OPUSDC price (1.5 with 18 decimals)
+        );
+
+        // Deploy openSwap with grant faucet
+        swapContract = new openSwap(address(oracle), address(bountyContract), address(grantFaucet));
+
+        // Link openSwap to grant faucet
+        vm.prank(faucetOwner);
+        grantFaucet.setOpenSwap(address(swapContract));
+
+        // Fund grant faucet with OP tokens for rebates
+        deal(OP, address(grantFaucet), 1000000e18);
 
         // Deploy tokens
         sellToken = new MockERC20("SellToken", "SELL");

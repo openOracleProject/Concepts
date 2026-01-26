@@ -15,7 +15,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 contract BountyAndPriceRequest is ReentrancyGuard {
     IOpenOracle public immutable oracle;
     IBountyERC20 public immutable bounty;
-    address public immutable owner;
+    address public owner;
     address public immutable USDC = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85;
     address public immutable OP = 0x4200000000000000000000000000000000000042;
     address public immutable WETH = 0x4200000000000000000000000000000000000006;
@@ -387,10 +387,15 @@ contract BountyAndPriceRequest is ReentrancyGuard {
             }
         }
     }
-    
+
     function setOpenSwap(address _openSwap) external nonReentrant {
         if (msg.sender != owner) revert("not owner");
         openSwap = _openSwap;
+    }
+
+    function changeOwner(address _owner) external nonReentrant {
+        if (msg.sender != owner) revert("not owner");
+        owner = _owner;
     }
 
     receive() external payable {}

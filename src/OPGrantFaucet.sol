@@ -56,15 +56,12 @@ contract BountyAndPriceRequest is ReentrancyGuard {
     uint256 public lastOpenSwapClaim;
     uint256 public openSwapTimer = 60;
 
-    constructor(address _oracle, address _bounty, address _owner, uint256 _OPWETH, uint256 _OPUSDC) {
+    constructor(address _oracle, address _bounty, address _owner) {
         require(_oracle != address(0), "oracle address cannot be 0");
         require(_bounty != address(0), "bounty address cannot be 0");
         oracle = IOpenOracle(_oracle);
         bounty = IBountyERC20(_bounty);
         owner = _owner; // will be project multisig when grant is actually received
-
-        OPWETH = _OPWETH;
-        OPUSDC = _OPUSDC;
 
         gameTimer[0] = 60 * 3;
         gameTimer[1] = 60 * 10;

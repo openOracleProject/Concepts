@@ -15,14 +15,14 @@ interface IOPGrantFaucet {
         address swapper,
         address sellToken,
         uint256 sellAmt,
-        uint48 settlementTime,
+        uint256 settlementTime,
         bool timeType,
-        uint24 fulfillStartingFee,
-        uint24 fulfillMaxFee,
-        uint256 initialLiquidity,
-        uint24 slippageToleranceRange,
-        uint24 swapFee,
-        uint24 protocolFee
+        uint256 startingFee,
+        uint256 maxFee,
+        uint256 initLiquidity,
+        uint256 toleranceRange,
+        uint256 swapFee,
+        uint256 protocolFee
     ) external;
 }
 

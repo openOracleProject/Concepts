@@ -45,7 +45,7 @@ contract OPGrantFaucetTest is Test {
         opToken = MockERC20(OP_TOKEN);
 
         // Deploy faucet with initial OP prices
-        faucet = new BountyAndPriceRequest(address(oracle), address(bountyContract), owner, 5e14, 15e17);
+        faucet = new BountyAndPriceRequest(address(oracle), address(bountyContract), owner);
 
         // Fund faucet with OP tokens for bounties
         opToken.transfer(address(faucet), 100 ether);
@@ -98,12 +98,12 @@ contract OPGrantFaucetTest is Test {
 
     function testConstructor_RevertsZeroOracleAddress() public {
         vm.expectRevert("oracle address cannot be 0");
-        new BountyAndPriceRequest(address(0), address(bountyContract), owner, 5e14, 15e17);
+        new BountyAndPriceRequest(address(0), address(bountyContract), owner);
     }
 
     function testConstructor_RevertsZeroBountyAddress() public {
         vm.expectRevert("bounty address cannot be 0");
-        new BountyAndPriceRequest(address(oracle), address(0), owner, 5e14, 15e17);
+        new BountyAndPriceRequest(address(oracle), address(0), owner);
     }
 
     function testConstructor_InitializesGameTimers() public view {
@@ -408,9 +408,7 @@ contract OPGrantFaucetTest is Test {
         BountyAndPriceRequest faucetWithRejecter = new BountyAndPriceRequest(
             address(oracle),
             address(bountyContract),
-            address(rejecter),
-            5e14,
-            15e17
+            address(rejecter)
         );
         vm.deal(address(faucetWithRejecter), 10 ether);
 

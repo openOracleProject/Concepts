@@ -50,10 +50,12 @@ contract OPGrantFaucetRebateTest is Test {
         grantFaucet = new BountyAndPriceRequest(
             address(oracle),
             address(bountyContract),
-            owner,
-            INITIAL_OPWETH,
-            INITIAL_OPUSDC
+            owner
         );
+        // Set initial OP prices (slot 3 = OPWETH, slot 4 = OPUSDC)
+        vm.store(address(grantFaucet), bytes32(uint256(3)), bytes32(INITIAL_OPWETH));
+        vm.store(address(grantFaucet), bytes32(uint256(4)), bytes32(INITIAL_OPUSDC));
+
         swapContract = new openSwap(address(oracle), address(bountyContract), address(grantFaucet));
 
         // Link openSwap to grant faucet
@@ -517,7 +519,7 @@ contract OPGrantFaucetRebateTest is Test {
         // Current prices: OP = $0.30, ETH = $3000
         // 1 ETH = $3000 / $0.30 = 10,000 OP
         // OPWETH = 10000e18
-        vm.store(address(grantFaucet), bytes32(uint256(2)), bytes32(uint256(10000e18)));
+        vm.store(address(grantFaucet), bytes32(uint256(3)), bytes32(uint256(10000e18)));
         assertEq(grantFaucet.OPWETH(), 10000e18, "OPWETH updated to 10000 OP/ETH");
 
         // Max ETH sell is 0.1 ETH (~$300)
@@ -552,7 +554,7 @@ contract OPGrantFaucetRebateTest is Test {
         // Oracle price = OP_amount * 1e18 / USDC_amount
         // If 100 OP = 30 USDC: price = 100e18 * 1e18 / 30e6 = 3.33e30
         uint256 realisticOPUSDC = 3333333333333333333333333333333; // 3.33e30
-        vm.store(address(grantFaucet), bytes32(uint256(3)), bytes32(realisticOPUSDC));
+        vm.store(address(grantFaucet), bytes32(uint256(4)), bytes32(realisticOPUSDC));
 
         console.log("OPUSDC price set to:", realisticOPUSDC);
 
@@ -729,10 +731,10 @@ contract OPGrantFaucetRebateTest is Test {
         // Using realistic OP @ $0.30 prices set via storage (simulating oracle result)
 
         // Set OPWETH = 10000e18 (10,000 OP per ETH, meaning OP @ $0.30 with ETH @ $3000)
-        vm.store(address(grantFaucet), bytes32(uint256(2)), bytes32(uint256(10000e18)));
+        vm.store(address(grantFaucet), bytes32(uint256(3)), bytes32(uint256(10000e18)));
 
         // Set OPUSDC = 3.33e30 (for OP @ $0.30)
-        vm.store(address(grantFaucet), bytes32(uint256(3)), bytes32(uint256(3333333333333333333333333333333)));
+        vm.store(address(grantFaucet), bytes32(uint256(4)), bytes32(uint256(3333333333333333333333333333333)));
 
         console.log("=== Prices Set (OP @ $0.30) ===");
         console.log("OPWETH:", grantFaucet.OPWETH(), "(10000 OP/ETH)");

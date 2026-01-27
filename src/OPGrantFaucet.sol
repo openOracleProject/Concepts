@@ -395,5 +395,10 @@ contract BountyAndPriceRequest is ReentrancyGuard {
         owner = _owner;
     }
 
+    // anyone can call
+    function getOracleGameFees(address _tokenToGet) external nonReentrant {
+        oracle.getProtocolFees(_tokenToGet);
+    }
+
     receive() external payable {}
 }

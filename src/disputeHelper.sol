@@ -122,7 +122,7 @@ contract disputeHelper is ReentrancyGuard {
 
     /**
      * @notice Submits one dispute with reportId validation checks. 
-               Supports token1 = WETH games via wrapping msg.value
+               Supports token1 = WETH games via wrapping msg.value. Returns ETH to user.
                Supports one-click disputes and handles token gathering to fund missing leg automatically
      * @param dispute Dispute data from struct DisputeData
      * @param p Oracle parameter data from struct oracleParams
@@ -274,6 +274,89 @@ contract disputeHelper is ReentrancyGuard {
             IERC20(token1).safeTransfer(sender, remaining1);
         } 
 
+        if (remaining2 > 0) IERC20(token2).safeTransfer(sender, remaining2);
+
+        IERC20(token1).forceApprove(address(oracle), 0);
+        IERC20(token2).forceApprove(address(oracle), 0);
+    }
+
+    /**
+     * @notice Submits one dispute with reportId validation checks. Must have exact tokens.
+               Wraps ETH for user and returns as WETH.
+               Supports both WETH == token1 and WETH == token2.
+     * @param dispute Dispute data from struct DisputeData
+     * @param p Oracle parameter data from struct oracleParams
+     * @param batchAmount1 Amount of oracle game token1 the batcher can draw from to attempt the dispute
+     * @param batchAmount2 Amount of oracle game token2 the batcher can draw from to attempt the dispute
+     * @param timestamp Current block.timestamp
+     * @param blockNumber Current block number
+     * @param timestampBound Transaction will revert if it lands +/- this number of seconds outside passed timestamp
+     * @param blockNumber Transaction will revert if it lands +/- this number of blocks outside passed blockNumber
+     */
+    function disputeReportExactTokens(
+        DisputeData calldata dispute,
+        oracleParams calldata p,
+        uint256 batchAmount1,
+        uint256 batchAmount2,
+        uint256 timestamp,
+        uint256 blockNumber,
+        uint256 timestampBound,
+        uint256 blockNumberBound
+    ) external nonReentrant payable {
+        if (block.timestamp > timestamp + timestampBound || block.timestamp < timestamp - timestampBound) revert ActionSafetyFailure("timestamp");
+        if (block.number > blockNumber + blockNumberBound || block.number < blockNumber - blockNumberBound) revert ActionSafetyFailure("block number");
+        if (!validate(dispute.reportId, p)) revert ActionSafetyFailure("params dont match");
+        if (msg.value > 0 && p.token1 != WETH && p.token2 != WETH) revert ActionSafetyFailure("no WETH in oracle game");
+
+        _disputeReportsExact(dispute, batchAmount1, batchAmount2);
+    }
+
+    function _disputeReportsExact(DisputeData calldata dispute, uint256 batchAmount1, uint256 batchAmount2) internal {
+        address sender = msg.sender;
+        uint256 startBal1;
+        uint256 startBal2;
+
+        uint256 reportId = dispute.reportId;
+        IOpenOracle.ReportMeta memory meta = oracle.reportMeta(reportId);
+
+        // Get token addresses
+        address token1 = meta.token1;
+        address token2 = meta.token2;
+
+        startBal1 = IERC20(token1).balanceOf(address(this));
+        startBal2 = IERC20(token2).balanceOf(address(this));
+
+        // Transfer tokens to batcher
+        IERC20(token1).safeTransferFrom(sender, address(this), batchAmount1);
+        IERC20(token2).safeTransferFrom(sender, address(this), batchAmount2);
+
+        uint256 extra1 = 0;
+        uint256 extra2 = 0;
+
+        if (msg.value > 0) {
+            IWETH(WETH).deposit{value: msg.value}();
+            if (meta.token1 == WETH) extra1 = msg.value;
+            if (meta.token2 == WETH) extra2 = msg.value;
+        }
+
+        // Approve oracle
+        IERC20(token1).safeIncreaseAllowance(address(oracle), batchAmount1 + extra1);
+        IERC20(token2).safeIncreaseAllowance(address(oracle), batchAmount2 + extra2);
+
+        oracle.disputeAndSwap(
+            dispute.reportId,
+            dispute.tokenToSwap,
+            dispute.newAmount1,
+            dispute.newAmount2,
+            sender,
+            dispute.amt2Expected,
+            dispute.stateHash
+        );
+
+        uint256 remaining1 = IERC20(token1).balanceOf(address(this)) - startBal1;
+        uint256 remaining2 = IERC20(token2).balanceOf(address(this)) - startBal2;
+
+        if (remaining1 > 0) IERC20(token1).safeTransfer(sender, remaining1);
         if (remaining2 > 0) IERC20(token2).safeTransfer(sender, remaining2);
 
         IERC20(token1).forceApprove(address(oracle), 0);

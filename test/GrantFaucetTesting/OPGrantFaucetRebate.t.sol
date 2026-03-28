@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import "../../src/OpenOracle.sol";
-import "../../src/openSwap.sol";
+import "../../src/openSwapOPGrant.sol";
 import "../../src/oracleBountyERC20_sketch.sol";
 import "../../src/OPGrantFaucet.sol";
 import "../utils/MockERC20.sol";
@@ -19,7 +19,7 @@ import "../utils/MockERC20.sol";
  */
 contract OPGrantFaucetRebateTest is Test {
     OpenOracle internal oracle;
-    openSwap internal swapContract;
+    openSwapOPGrant internal swapContract;
     openOracleBounty internal bountyContract;
     BountyAndPriceRequest internal grantFaucet;
 
@@ -56,7 +56,7 @@ contract OPGrantFaucetRebateTest is Test {
         vm.store(address(grantFaucet), bytes32(uint256(3)), bytes32(INITIAL_OPWETH));
         vm.store(address(grantFaucet), bytes32(uint256(4)), bytes32(INITIAL_OPUSDC));
 
-        swapContract = new openSwap(address(oracle), address(bountyContract), address(grantFaucet));
+        swapContract = new openSwapOPGrant(address(oracle), address(bountyContract), address(grantFaucet));
 
         // Link openSwap to grant faucet
         vm.prank(owner);

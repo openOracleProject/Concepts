@@ -9,37 +9,19 @@ import {IWETH} from "./interfaces/IWETH.sol";
 import {IBountyERC20} from "./interfaces/IBountyERC20.sol";
 import {oracleFeeReceiver} from "./oracleFeeReceiver.sol";
 
-interface IOPGrantFaucet {
-    function feeRebateEligible() external view returns (bool);
-    function openSwapFeeRebate(
-        address swapper,
-        address sellToken,
-        uint256 sellAmt,
-        uint256 settlementTime,
-        bool timeType,
-        uint256 startingFee,
-        uint256 maxFee,
-        uint256 initLiquidity,
-        uint256 toleranceRange,
-        uint256 swapFee,
-        uint256 protocolFee
-    ) external;
-}
-
 /**
  * @title openSwap
  * @notice Uses openOracle for swap execution price
            Different from simpleSwapper since there's no choice about whether to fulfill
            simpleSwapper flow is deposit sellToken -> oracle game ends in price -> anyone has choice to swap against that price
            openSwap flow is deposit sellToken -> someone matches with enough buyToken -> oracle game ends in price -> swap executed against price
-           This swapping method may open up oracle price manipulation opportunities. We try to cover two manipulation strategies here:
-                      https://openprices.gitbook.io/openoracle-docs/contents/considerations#a-stronger-form-of-manipulation
-                      https://openprices.gitbook.io/openoracle-docs/contents/considerations#manipulation-without-a-swap-fee
-           Biasing the mean settled oracle price seems costly.
+           This swapping method may open up oracle price manipulation opportunities. We try to cover manipulation strategies here:
+                      https://docs.openoracle.org/openoracle/attack-vectors#manipulation-without-a-swap-fee
+           Biasing the mean settled oracle price seems doable but tough, as the attacker needs to solve a multiplayer DP to optimally bias.
            In general, this is a very complex game and we probably need to play it in the real world to be sure about the economics.
  * @author OpenOracle Team
  * @custom:version 0.1.6
- * @custom:documentation https://openprices.gitbook.io/openoracle-docs
+ * @custom:documentation https://docs.openoracle.org/
  */
 
 contract openSwap is ReentrancyGuard {
@@ -48,14 +30,12 @@ contract openSwap is ReentrancyGuard {
     IBountyERC20 public immutable bounty;
     IOpenOracle public immutable oracle;
     address public immutable WETH = 0x4200000000000000000000000000000000000006;
-    IOPGrantFaucet public immutable OPGrantFaucet;
 
     error InvalidInput(string);
 
-    constructor(address oracle_, address bounty_, address OPGrantFaucet_) {
+    constructor(address oracle_, address bounty_) {
         oracle = IOpenOracle(oracle_);
         bounty = IBountyERC20(bounty_);
-        OPGrantFaucet = IOPGrantFaucet(OPGrantFaucet_);
     }
 
     mapping (uint256 => Swap) public swaps;
@@ -319,13 +299,32 @@ contract openSwap is ReentrancyGuard {
     /**
      * @notice Swapper cancels swap, receiving tokens back.
                Must be called prior to match.
+               Allows anyone to call 30 seconds after swap expiration, pays them 20% of gas compensation.
      * @param swapId Unique identifier of swapping instance
     */
     function cancelSwap(uint256 swapId) external nonReentrant {
         Swap storage s = swaps[swapId];
         OracleParams memory o = s.oracleParams;
 
-        if (msg.sender != s.swapper) revert InvalidInput("not swapper");
+        address caller;
+        uint256 callerPiece;
+        uint256 swapperPiece;
+
+        if (block.timestamp <= s.expiration + 30){
+            if (msg.sender != s.swapper) revert InvalidInput("not swapper");
+            callerPiece = 0;
+            swapperPiece = s.gasCompensation;
+        } else {
+            if (msg.sender != s.swapper){
+                caller = msg.sender;
+                //any issues with weird gasCompensations causing drain attacks / cancel failure? or is this integer math fine.
+                callerPiece = s.gasCompensation / 5;
+                swapperPiece = s.gasCompensation - callerPiece;
+            } else {
+                swapperPiece = s.gasCompensation;
+            }
+        }
+
         if (s.matched) revert InvalidInput("already matched");
         if (!s.active) revert InvalidInput("not active");
         if (s.cancelled) revert InvalidInput("cancelled");
@@ -334,19 +333,23 @@ contract openSwap is ReentrancyGuard {
         s.cancelled = true;
         if (s.bountyParams.bountyToken == address(0)){
             if (s.sellToken != address(0)) {
-                IERC20(s.sellToken).safeTransfer(msg.sender, s.sellAmt);
-                payEth(s.swapper, s.gasCompensation + s.bountyParams.totalAmtDeposited + o.settlerReward + 1);
+                IERC20(s.sellToken).safeTransfer(s.swapper, s.sellAmt);
+                payEth(s.swapper, swapperPiece + s.bountyParams.totalAmtDeposited + o.settlerReward + 1);
+                if (caller == msg.sender) payEth(caller, callerPiece);
             } else {
-                payEth(s.swapper, s.sellAmt + s.gasCompensation + s.bountyParams.totalAmtDeposited + o.settlerReward + 1);
+                payEth(s.swapper, s.sellAmt + swapperPiece + s.bountyParams.totalAmtDeposited + o.settlerReward + 1);
+                if (caller == msg.sender) payEth(caller, callerPiece);
             }
         } else {
             if (s.sellToken != address(0)) {
-                IERC20(s.sellToken).safeTransfer(msg.sender, s.sellAmt);
-                IERC20(s.bountyParams.bountyToken).safeTransfer(msg.sender, s.bountyParams.totalAmtDeposited);
-                payEth(s.swapper, s.gasCompensation + o.settlerReward + 1);
+                IERC20(s.sellToken).safeTransfer(s.swapper, s.sellAmt);
+                IERC20(s.bountyParams.bountyToken).safeTransfer(s.swapper, s.bountyParams.totalAmtDeposited);
+                payEth(s.swapper, swapperPiece + o.settlerReward + 1);
+                if (caller == msg.sender) payEth(caller, callerPiece);
             } else {
-                IERC20(s.bountyParams.bountyToken).safeTransfer(msg.sender, s.bountyParams.totalAmtDeposited);
-                payEth(s.swapper, s.sellAmt + s.gasCompensation + o.settlerReward + 1);
+                IERC20(s.bountyParams.bountyToken).safeTransfer(s.swapper, s.bountyParams.totalAmtDeposited);
+                payEth(s.swapper, s.sellAmt + swapperPiece + o.settlerReward + 1);
+                if (caller == msg.sender) payEth(caller, callerPiece);
             }
         }
 
@@ -436,31 +439,6 @@ contract openSwap is ReentrancyGuard {
                 payEth(s.swapper, fulfillAmt);
                 payEth(s.matcher, s.minFulfillLiquidity - fulfillAmt);
                 _transferTokens(s.sellToken, address(this), s.matcher, s.sellAmt);
-            }
-
-            bool rebateAvailable;
-            try OPGrantFaucet.feeRebateEligible() returns (bool ok) {
-                rebateAvailable = ok;
-            } catch {
-                rebateAvailable = false;
-            }
-
-            if (rebateAvailable){
-                try OPGrantFaucet.openSwapFeeRebate(
-                s.swapper,
-                s.sellToken, 
-                s.sellAmt, 
-                s.oracleParams.settlementTime, 
-                s.oracleParams.timeType, 
-                s.fulfillFeeParams.startingFee, 
-                s.fulfillFeeParams.maxFee, 
-                s.oracleParams.initialLiquidity, 
-                s.slippageParams.toleranceRange, 
-                s.oracleParams.swapFee, 
-                s.oracleParams.protocolFee) {
-                } catch {
-                    // swallow
-                } 
             }
 
             emit SwapExecuted(s.swapper, s.matcher, swapId, s.sellAmt, fulfillAmt);

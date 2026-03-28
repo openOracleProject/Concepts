@@ -5,14 +5,12 @@ import "forge-std/Test.sol";
 import "../../src/OpenOracle.sol";
 import "../../src/openSwap.sol";
 import "../../src/oracleBountyERC20_sketch.sol";
-import "../../src/OPGrantFaucet.sol";
 import "../utils/MockERC20.sol";
 
 contract OpenSwapHappyPathTest is Test {
     OpenOracle internal oracle;
     openSwap internal swapContract;
     openOracleBounty internal bountyContract;
-    BountyAndPriceRequest internal grantFaucet;
     MockERC20 internal sellToken;
     MockERC20 internal buyToken;
 
@@ -25,7 +23,6 @@ contract OpenSwapHappyPathTest is Test {
     address internal matcher = address(0x2);
     address internal initialReporter = address(0x3);
     address internal settler = address(0x4);
-    address internal faucetOwner = address(0x5);
 
     // Oracle params
     uint256 constant SETTLER_REWARD = 0.001 ether;
@@ -65,21 +62,13 @@ contract OpenSwapHappyPathTest is Test {
         bountyContract = new openOracleBounty(address(oracle));
 
         // Deploy grant faucet
-        grantFaucet = new BountyAndPriceRequest(
-            address(oracle),
-            address(bountyContract),
-            faucetOwner
-        );
 
         // Deploy openSwap with grant faucet
-        swapContract = new openSwap(address(oracle), address(bountyContract), address(grantFaucet));
+        swapContract = new openSwap(address(oracle), address(bountyContract));
 
         // Link openSwap to grant faucet
-        vm.prank(faucetOwner);
-        grantFaucet.setOpenSwap(address(swapContract));
 
         // Fund grant faucet with OP tokens for rebates
-        deal(OP, address(grantFaucet), 1000000e18);
 
         // Deploy tokens
         sellToken = new MockERC20("SellToken", "SELL");
@@ -304,129 +293,4 @@ contract OpenSwapHappyPathTest is Test {
         console.log("Settler reward:", SETTLER_REWARD);
     }
 
-    function testRebateThroughActualSettlement() public {
-        // Set OP prices via storage (slot 3 = OPWETH, slot 4 = OPUSDC)
-        vm.store(address(grantFaucet), bytes32(uint256(3)), bytes32(uint256(10000e18))); // 10000 OP per ETH
-        vm.store(address(grantFaucet), bytes32(uint256(4)), bytes32(uint256(3333333333333333333333333333333))); // ~3.33e30
-
-        // Use USDC as sellToken to qualify for rebate
-        // Rebate requirements from OPGrantFaucet:
-        // - sellToken = USDC or address(0)
-        // - sellAmt <= 300e6 for USDC
-        // - settlementTime = 4
-        // - timeType = true
-        // - startingFee >= 750
-        // - maxFee 2000-10000
-        // - initialLiquidity >= 10 * sellAmt / 101
-        // - toleranceRange <= 50000
-        // - swapFee = 1
-        // - protocolFee <= 250
-        uint256 usdcSellAmt = 100e6; // 100 USDC
-        uint256 initLiq = 10e6 + 1; // >= 10 * 100e6 / 101 = ~9.9e6
-
-        deal(USDC, swapper, 1000e6);
-        deal(WETH, matcher, 1000e18);
-
-        vm.prank(swapper);
-        MockERC20(USDC).approve(address(swapContract), type(uint256).max);
-        vm.prank(matcher);
-        MockERC20(WETH).approve(address(swapContract), type(uint256).max);
-
-        uint256 swapperOPBefore = MockERC20(OP).balanceOf(swapper);
-
-        vm.startPrank(swapper);
-
-        openSwap.OracleParams memory oracleParams = openSwap.OracleParams({
-            settlerReward: 0.001 ether,
-            initialLiquidity: initLiq,
-            escalationHalt: usdcSellAmt * 3,
-            settlementTime: 4,      // REQUIRED: must be 4
-            latencyBailout: 600,
-            maxGameTime: 7200,
-            blocksPerSecond: 500,
-            disputeDelay: 0,
-            swapFee: 1,             // REQUIRED: must be 1
-            protocolFee: 100,       // REQUIRED: <= 250
-            multiplier: 110,
-            timeType: true          // REQUIRED: must be true
-        });
-
-        // Price = amount1 * 1e18 / amount2
-        // We'll report initLiq USDC (6 dec) vs some WETH (18 dec)
-        // If initLiq = 10e6 USDC, and we report 10e6 * 1e18 / X = price
-        // For price ~3000e6 (USDC per ETH scaled): amount2 = initLiq * 1e18 / 3000e6 = 10e6 * 1e18 / 3000e6 = ~3.33e15
-        openSwap.SlippageParams memory slippageParams = openSwap.SlippageParams({
-            priceTolerated: 3000e6, // ~$3000 per ETH in USDC/WETH oracle price
-            toleranceRange: 50000   // REQUIRED: <= 50000
-        });
-
-        openSwap.FulfillFeeParams memory fulfillFeeParams = openSwap.FulfillFeeParams({
-            startFulfillFeeIncrease: 0,
-            maxFee: 5000,           // REQUIRED: 2000-10000
-            startingFee: 1000,      // REQUIRED: >= 750
-            roundLength: 60,
-            growthRate: 15000,
-            maxRounds: 10
-        });
-
-        openSwap.BountyParams memory bountyParams = openSwap.BountyParams({
-            totalAmtDeposited: 0.01 ether,
-            bountyStartAmt: 0.0005 ether,
-            roundLength: 1,
-            bountyToken: address(0),
-            bountyMultiplier: 12247,
-            maxRounds: 20
-        });
-
-        uint256 swapId = swapContract.swap{value: 0.001 ether + 0.01 ether + 0.001 ether + 1}(
-            usdcSellAmt,
-            USDC,
-            1e15,  // minOut in WETH
-            WETH,
-            1e18,  // minFulfillLiquidity
-            block.timestamp + 1 hours,
-            0.001 ether,
-            oracleParams,
-            slippageParams,
-            fulfillFeeParams,
-            bountyParams
-        );
-        vm.stopPrank();
-
-        // Match
-        vm.startPrank(matcher);
-        bytes32 swapHash = swapContract.getSwapHash(swapId);
-        swapContract.matchSwap(swapId, swapHash);
-        vm.stopPrank();
-
-        // Submit report with price matching slippage tolerance
-        // price = amount1 * 1e18 / amount2 = initLiq * 1e18 / amount2
-        // We want price ~= 3000e6, so amount2 = initLiq * 1e18 / 3000e6
-        openSwap.Swap memory s = swapContract.getSwap(swapId);
-        (bytes32 stateHash,,,,,,,) = oracle.extraData(s.reportId);
-
-        uint256 reportAmount2 = uint256(initLiq) * 1e18 / 3000e6; // ~3.33e15 WETH
-
-        deal(USDC, initialReporter, 1000e6);
-        deal(WETH, initialReporter, 1000e18);
-        vm.startPrank(initialReporter);
-        MockERC20(USDC).approve(address(bountyContract), type(uint256).max);
-        MockERC20(WETH).approve(address(bountyContract), type(uint256).max);
-        bountyContract.submitInitialReport(s.reportId, initLiq, reportAmount2, stateHash, initialReporter);
-        vm.stopPrank();
-
-        // Settle after 61 seconds (rebate eligibility requires timestamp >= lastClaim + 60)
-        vm.warp(block.timestamp + 61);
-        vm.roll(block.number + 31);
-        vm.prank(settler);
-        oracle.settle(s.reportId);
-
-        uint256 swapperOPAfter = MockERC20(OP).balanceOf(swapper);
-        uint256 rebateReceived = swapperOPAfter - swapperOPBefore;
-
-        console.log("=== Rebate Through Actual Settlement ===");
-        console.log("Rebate received (OP wei):", rebateReceived);
-
-        assertGt(rebateReceived, 0, "Swapper should have received OP rebate through actual settlement");
-    }
 }

@@ -5,7 +5,6 @@ import "forge-std/Test.sol";
 import "../../src/OpenOracle.sol";
 import "../../src/openSwap.sol";
 import "../../src/oracleBountyERC20_sketch.sol";
-import "../../src/OPGrantFaucet.sol";
 import "../utils/MockERC20.sol";
 
 /**
@@ -25,7 +24,6 @@ contract OpenSwapERC20BountyTest is Test {
     OpenOracle internal oracle;
     openSwap internal swapContract;
     openOracleBounty internal bountyContract;
-    BountyAndPriceRequest internal grantFaucet;
     MockERC20 internal sellToken;
     MockERC20 internal buyToken;
     MockERC20 internal bountyToken;
@@ -39,7 +37,6 @@ contract OpenSwapERC20BountyTest is Test {
     address internal initialReporter = address(0x3);
     address internal settler = address(0x4);
     address internal randomUser = address(0x5);
-    address internal faucetOwner = address(0x6);
 
     // Oracle params
     uint256 constant SETTLER_REWARD = 0.001 ether;
@@ -72,12 +69,8 @@ contract OpenSwapERC20BountyTest is Test {
 
         oracle = new OpenOracle();
         bountyContract = new openOracleBounty(address(oracle));
-        grantFaucet = new BountyAndPriceRequest(address(oracle), address(bountyContract), faucetOwner, 5e14, 15e17);
-        swapContract = new openSwap(address(oracle), address(bountyContract), address(grantFaucet));
+        swapContract = new openSwap(address(oracle), address(bountyContract));
 
-        vm.prank(faucetOwner);
-        grantFaucet.setOpenSwap(address(swapContract));
-        deal(OP, address(grantFaucet), 1000000e18);
 
         sellToken = new MockERC20("SellToken", "SELL");
         buyToken = new MockERC20("BuyToken", "BUY");

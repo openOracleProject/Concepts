@@ -317,7 +317,6 @@ contract openSwap is ReentrancyGuard {
         } else {
             if (msg.sender != s.swapper){
                 caller = msg.sender;
-                //any issues with weird gasCompensations causing drain attacks / cancel failure? or is this integer math fine.
                 callerPiece = s.gasCompensation / 5;
                 swapperPiece = s.gasCompensation - callerPiece;
             } else {
